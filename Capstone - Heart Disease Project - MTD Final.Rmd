@@ -1,0 +1,1694 @@
+---
+title: "Capstone - Heart Disease Project"
+author: "Michael Twiston Davies"
+date: "02/01/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+This project intends to apply machine learning techniques that go beyond standard linear regression to try and predict the presence of heart disease in patients.
+
+
+## History and disclosure
+
+The data was collected from the four following locations:
+
+1. Cleveland Clinic Foundation (cleveland.data)
+2. Hungarian Institute of Cardiology, Budapest (hungarian.data)
+3. V.A. Medical Center, Long Beach, CA (long-beach-va.data)
+4. University Hospital, Zurich, Switzerland (switzerland.data)
+
+The authors of the databases have requested:
+
+That any publications resulting from the use of the data include the names of the principal investigator responsible for the data collection at each institution.  They would be:
+ 
+1. Hungarian Institute of Cardiology. Budapest: Andras Janosi, M.D.
+2. University Hospital, Zurich, Switzerland: William Steinbrunn, M.D.
+3. University Hospital, Basel, Switzerland: Matthias Pfisterer, M.D.
+4. V.A. Medical Center, Long Beach and Cleveland Clinic Foundation: Robert Detrano, M.D., Ph.D.
+
+## Previous results
+
+Robert Detrano, M.D. published his findings on "International application of a new probability algorithm for the diagnosis of coronary artery disease" in the American Journal of Cardiology. He obtained approximately a 77% correct classification accuracy with a logistic-regression-derived discriminant function.
+
+David W. Aha & Dennis Kibler's published work on "Instance-based prediction of heart-disease presence" with the Cleveland database yielded 74.8% to 77.0% accurary.
+
+John Gennari's "Models of incremental concept formation" published in "Artificial Intelligence" utilised a CLASSIT conceptual clustering system achieving 78.9% accuracy on the Cleveland database.
+
+## The data set
+
+The full data set can be found here. https://archive.ics.uci.edu/ml/datasets/Heart+Disease
+
+The full database contains 76 attributes, however the 14 listed below are the subset utlised by all published experiments. The Cleveland database is the only one that has been used by machine learning researchers according to archive.ics.uci.edu.
+
+### Attribute Information:
+  
+Only 14 attributes used (# for original attribute numbering):
+
+#### Predictors
+
+1. #3 (age) - age in years
+2. #4 (sex) - sex (1 = male; 0 = female)
+3. #9 (cp) - chest pain type; 1: typical angina, 2: atypical angina, 3: non-anginal pain and 4: asymptomatic
+4. #10 (trestbps) - resting blood pressure (in mm Hg on admission to the hospital)
+5. #12 (chol) - serum cholestoral in mg/dl
+6. #16 (fbs) - (fasting blood sugar > 120 mg/dl)  (1 = true; 0 = false)
+7. #19 (restecg) - resting electrocardiographic results; 0: normal, 1: having ST-T wave abnormality, 2: showing probable or definite left ventricular hypertrophy by Estes' criteria
+8. #32 (thalach) - maximum heart rate achieved
+9. #38 (exang) - exercise induced angina (1 = yes; 0 = no)
+10. #40 (oldpeak) - ST depression induced by exercise relative to rest
+11. #41 (slope) - the slope of the peak exercise ST segment; 1: upsloping, 2: flat and 3: downsloping
+12. #44 (ca) - number of major vessels (0-3) colored by flourosopy
+13. #51 (thal) - Form of thalassemia; 3 = normal; 6 = fixed defect; 7 = reversable defect
+
+#### Predicting
+
+14. #58 (num) - diagnosis of heart disease (angiographic disease status); The presence of heart disease is on a scale 0 being the absence and 1-4 showing presence.
+
+We will visualise the data within the method section.
+
+## Aim
+
+We aim  to use machine learning to try and create a predictive method to detect heart disease in patients based on predictors. 
+
+The presence of heart disease is on a scale, 0 being the absence and 1-4 showing presence. For the purpose of this investigation we are interested in identifying only the presence of heart disease (1-4) and therefore shall allocate these all the value 1 so we can perform logistic regression with a binary outcome.
+
+John Gennari achieved a 78.9% accuracy using his CLASSIT conceptual clustering system on the Cleveland database, we will aim to improve upon this.
+
+Therefore we aim for an accuracy of > 0.789, although we are also interested in the sensitivity and specificity (proportion of correctly identified absence of heart disease and proportion of its presence).
+
+# Method
+
+## Method - Overview
+
+Our data set will firstly be split 10% into a validation data set for which we will assess the final performance of our algorithm, the remaining 90% will be further split into 80% for training the data and 20% for testing.
+
+We will utilise the below machine learning techniques training these on the training data set and then testing the accuracy on the testing data. We will use these values to pick our final model which we will then validate against the validation data set and try to obtain an accuracy greater than 78.9%. We will also create an ensemble of the best models to increase our accuracy (by using a majority prediction across the models for each outcome).
+
+1. Model 1 - K-Means
+2. Model 2 - Partial Least Squares ("PLS")          
+3. Model 3 - General Logistic Regression ("GLM")           
+4. Model 4 - Linear Discriminant Analysis ("LDA") 
+5. Model 5 - Quadratic Discriminant Analysis ("QDA")  
+6. Model 6 - Local weighted regression ("Loess")         
+7. Model 7 - K-Nearest Neighbors ("KNN")          
+8. Model 8 - Random Forest ("RF")
+
+# Data Preparation
+
+## Load Required Packages
+
+```{r LoadPackages, message=FALSE}
+##########################################################
+# Load Packages
+##########################################################
+
+# packages to be used
+library(tidyverse) # a multitude of useful functions
+library(caret) # for prediction formulas
+library(ggplot2) # graphic visualisations
+library(ggcorrplot) # Correlation plot
+library(cluster)    # clustering algorithms
+library(factoextra) # clustering algorithms & visualization
+library(clusterSim) # normalise data for PCA
+library(gridExtra) # grid arrange graphs
+library(gam) # for Loess models
+library(matrixStats) # colsds for scaling
+
+# Suppress summarise info
+library(dplyr, warn.conflicts = FALSE) # use to suppress grouping warning messages
+options(dplyr.summarise.inform = FALSE) # use to suppress grouping warning messages
+
+```
+
+## Pull data set from ics.uci.edu
+
+Below we will pull the data from https://archive.ics.uci.edu/ml/datasets/Heart+Disease. However, the layout is in one column with spaces splitting the fourteen data points for each observation. We will address this and rename the columns based on the names given to us from the webpage's "Attibute information" detailed above. Then we will add a fifteenth column to give each data set a location as this might prove useful later on.
+
+This directory contains 4 databases concerning heart disease diagnosis which we will pull individually. All attributes are numeric-valued.  The data was collected from the four following locations:
+
+1. Cleveland Clinic Foundation (cleveland.data)
+2. Hungarian Institute of Cardiology, Budapest (hungarian.data)
+3. V.A. Medical Center, Long Beach, CA (long-beach-va.data)
+4. University Hospital, Zurich, Switzerland (switzerland.data)
+
+```{r Pulldata, message=FALSE}
+##########################################################
+# Pull data set from ics.uci.edu 
+##########################################################
+
+# reprocessed.hungarian.data
+heart.uci.hungarian <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/reprocessed.hungarian.data"), 
+                      header=FALSE) %>% 
+  separate(col = V1 ,
+           sep = "\\s",
+           into = c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach", "exang", "oldpeak", "slope", "ca", "thal", "num")) %>% 
+  mutate(Location = c("Hungary"))
+
+# processed.cleveland.data
+heart.uci.cleveland <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data"), 
+                                header=FALSE) 
+
+colnames(heart.uci.cleveland) <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach", "exang", "oldpeak", "slope", "ca", "thal", "num")
+
+heart.uci.cleveland <- heart.uci.cleveland %>% 
+  mutate(Location = c("Cleveland"))
+
+# processed.switzerland.data
+heart.uci.switzerland <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.switzerland.data"), 
+                                header=FALSE)  
+
+colnames(heart.uci.switzerland) <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach", "exang", "oldpeak", "slope", "ca", "thal", "num")
+
+heart.uci.switzerland <- heart.uci.switzerland %>% 
+  mutate(Location = c("Switzerland"))
+
+  
+# processed.va.data
+heart.uci.longbeach <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.va.data"), 
+                                header=FALSE) 
+
+colnames(heart.uci.longbeach) <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach", "exang", "oldpeak", "slope", "ca", "thal", "num")
+
+heart.uci.longbeach <- heart.uci.longbeach %>% 
+  mutate(Location = c("LongBeach"))
+
+```
+
+We note that some of this data needs cleaning. Most obvious is the use of "?" for NA values. We will replace these soon.
+
+Though we will do this once for the final data set so firstly we will append them together.
+
+```{r Pulldata.2, message=FALSE}
+heart.uci <- rbind( heart.uci.cleveland , heart.uci.hungarian , heart.uci.longbeach , heart.uci.switzerland)
+
+# Now we can remove the starting four data sets.
+rm( heart.uci.cleveland , heart.uci.hungarian , heart.uci.longbeach , heart.uci.switzerland)
+```
+
+## Clean the data
+
+In this part we will remove rows without a outcome logged and those with symbol values or incorrect values will be replaced.
+
+```{r Datacleaning, message=FALSE}
+##########################################################
+# Data Cleaning
+##########################################################
+```
+
+There seems to be a row with blank values. Since we are predicting the "num" variable we will filter this out from this column.
+
+```{r Datacleaning.2, message=FALSE}
+unique(heart.uci$num) # view unique values in outcome column to show this is not complete
+
+heart.uci <- heart.uci %>% 
+  filter( num != "") #remove blank values
+```
+
+Though we still have the "?" values which we will replace with NA as we will also filter these out with na.omit() later.
+
+```{r Datacleaning.3, message=FALSE}
+heart.uci <- heart.uci %>% 
+  na_if("?")
+```
+
+The information provided with the data set also states that a number of attribute values are missing which is distinguished by a "-9.0" value. We will therefore also replace these with NA across the whole data set.
+
+```{r Datacleaning.4, message=FALSE}
+heart.uci <- heart.uci %>% 
+  na_if("-9.0") %>% 
+  na_if("-9") %>% 
+  na_if(-9)
+```
+
+We also note that the "thal" and "ca" columns have values which are the same numerically but different strings, we replace these below.
+
+```{r Datacleaning.5, message=FALSE}
+
+heart.uci <- heart.uci %>% 
+  mutate(thal = if_else(thal == "7", "7.0",thal)) %>% 
+  mutate(ca = if_else(ca == "0", "0.0",ca))
+```
+
+## Visualising the data by location
+
+We tagged the 4 sets of data by location, here we will see if we can increase the data set used from previous studies which only utilised the Cleveland data.
+
+```{r Visualisingthedatabylocation, message=FALSE}
+##########
+
+# Quick look at the data by location - All data
+heart.uci.location <- heart.uci %>% 
+  gather(key = "variable", value = "value", -one_of("Location")) %>% 
+  group_by(Location , variable) %>% 
+  summarise(n = n())
+
+heart.uci.location.summary <- heart.uci.location %>% 
+  spread(key = "variable", value = "n")
+```
+
+The below table shows us that there is potentially another ~617 in addition to the 303 records from Cleveland.
+
+```{r Visualisingthedatabylocation.2, message=FALSE}
+heart.uci.location.summary %>% knitr::kable()
+
+```
+
+However, when removing "NA" values (in the table below) we can see that "ca" and "thal" are not recorded in locations other than Cleveland regularly. If we removed these variables and then filtered out all NA values we would end up with 531 rows of observations. This would be a dramatic increase on our data set from ~299, however we will later discover that via the "random forest" method that these are important variables.
+
+Therefore we will not remove these variables to increase the number of observations. I ran the models excluding "ca" and "thal" which decreased their accuracy, justifying this choice.
+
+```{r Visualisingthedatabylocation.3, message=FALSE}
+# Quick look at the data by location - Data excluding NA's
+
+heart.uci.location <- heart.uci %>% 
+  gather(key = "variable", value = "value", -one_of("Location")) %>% 
+  filter(!is.na(value)) %>% 
+  group_by(Location , variable) %>% 
+  summarise(n = n())
+
+heart.uci.location.summary <- heart.uci.location %>% 
+  spread(key = "variable", value = "n")
+
+heart.uci.location.summary %>% knitr::kable()
+
+##########
+
+# Remove NA values
+heart.uci <- na.omit(heart.uci)
+
+# Number of observations by location
+heart.uci.location <- heart.uci %>% 
+  gather(key = "variable", value = "value", -one_of("Location")) %>% 
+  filter( variable == "num") %>% 
+  group_by(Location , variable) %>% 
+  summarise(n = n())
+
+rm(heart.uci.location.summary , heart.uci.location)
+```
+
+After deciding to keep "ca" and "thal" values whilst also removing all rows with NA data points we can see that 297 are relating to the Cleveland data, 1 to Hungary and 1 LongBeach. It therefore seems pointless to keep the location variable so we will remove it.
+
+```{r Visualisingthedatabylocation.4, message=FALSE}
+
+heart.uci <- heart.uci %>% 
+  dplyr::select(-Location) %>%   # Remove location variable added.
+  mutate( PresenceValue = if_else(num == 0 , "0" , "1") )  # replace "num" with "PresencValue" as we are only looking for the presence of heart disease (1-4) and not distinguishing between these levels.
+
+```
+
+## Store data for visualisation purposes
+
+Before we split our data into validation, test and training partitions lets just copy the data to be used for our visualisation section where we will select predictors to be used from the variables available.
+
+```{r Splittingvisualisationdata, message=FALSE}
+
+# Data for visualisation. We are copying the database for the exploration phase before our machine learning modelling.
+heart.visualise <- heart.uci
+
+```
+
+## Split data set into testing, training and validation data sets
+
+As mentioned in the introduction we will now split out the validation, test and training sets set.
+
+```{r Createdata sets, message=FALSE}
+##########################################################
+# Split data set into testing, training and validation data sets (final hold-out test set)
+##########################################################
+
+# Remove num
+heart.uci <- heart.uci %>% 
+  dplyr::select( - num)
+
+# Change columns to numeric initially for analysis. We will transform those with levels back into factors later.
+# Columns to be changed
+cols <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg","thalach", "exang","oldpeak", "slope", "ca", "thal" ,"PresenceValue")
+# Apply change
+heart.uci[cols] <- lapply(heart.uci[cols], as.numeric)
+
+# Columns to be changed back into factors
+cols <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "thal", "PresenceValue")
+
+# Apply change
+heart.uci[cols] <- lapply(heart.uci[cols], factor)
+rm(cols)
+
+# Validation set will be 10% of the data. We will use this to test our final model.
+
+set.seed(1) # Set seed to ensure those repeating this analysis obtain the same results.
+test_index <- createDataPartition(y = heart.uci$PresenceValue, times = 1, p = 0.1, list = FALSE)
+heartdata <- heart.uci[-test_index,]
+validation <- heart.uci[test_index,]
+
+# Remove items no longer needed.
+rm(test_index)
+```
+
+We converted the columns to numeric and then those with levels back into factors before splitting the data in order to ensure we have observations at each level for all factors in the split data sets. We can see this is true with the below summary tables.
+
+```{r Createdata sets.2, message=FALSE}
+summary(heartdata) %>% knitr::kable()
+summary(validation) %>% knitr::kable()
+
+##########################################################
+# Partition heartdata data set into test and training data sets
+##########################################################
+
+set.seed(1) # Set seed to ensure those repeating this analysis obtain the same results.
+test_index <- createDataPartition(y = heartdata$PresenceValue, times = 1,
+                                  p = 0.2, list = FALSE)
+
+train_set <- heartdata[-test_index,]
+test_set <- heartdata[test_index,]
+rm(test_index , heartdata)
+
+summary(train_set) %>% knitr::kable()
+summary(test_set) %>% knitr::kable()
+```
+
+## Adding/mutating columns for data visualisation
+
+```{r ImprovingVisualisationData, message=FALSE}
+
+##########################################################
+# Adding information / Changing columns for visualisation/data exploration
+##########################################################
+
+heart.visualise <- heart.visualise %>%
+  # The names and social security numbers of the patients were removed. Although we have no way of knowing that each observation is for a different patient (rather than being retested) we shall make this assumption and assume a "dummy"
+  mutate(id = 1:n()) %>%
+  # Add Male/female descriptions - (sex) - (1 = male; 0 = female)
+  mutate( SexDesc = if_else(sex == 1 , "male" , "female") ) %>%
+  # (cp) - chest pain type; 1: typical angina, 2: atypical angina, 3: non-anginal pain and 4: asymptomatic
+  mutate( ChestPain =   case_when(cp == 1 ~ "typical angina",
+                                  cp == 2 ~ "atypical angina",
+                                  cp == 3 ~ "non-anginal pain",
+                                  cp == 4 ~ "asymptomatic"
+                                  ) ) %>%
+  # (fbs) - (fasting blood sugar > 120 mg/dl)  (1 = true; 0 = false)
+  mutate( FastingBloodSugar = if_else(fbs == 1 , "true" , "false") ) %>%
+  # (restecg) - resting electrocardiographic results; 0: normal, 1: having ST-T wave abnormality, 2: showing probable or definite left ventricular hypertrophy by Estes' criteria
+  mutate( RestingECG =   case_when(restecg == 0 ~ "normal",
+                                   restecg == 1 ~ "ST-T wave abnormality",
+                                   restecg == 2 ~ "left ventricular hypertrophy"
+                                  ) ) %>%
+  # (exang) - exercise induced angina (1 = yes; 0 = no)
+  mutate( ExerciseInducedAngina = if_else(exang == 1 , "true" , "false") ) %>%
+  # (slope) - the slope of the peak exercise ST segment; 1: upsloping, 2: flat and 3: downsloping
+  mutate( SlopeDesc =   case_when(slope == 1 ~ "upsloping",
+                                   slope == 2 ~ "flat",
+                                   slope == 3 ~ "downsloping"
+                                   ) ) %>%
+   # (thal) - 3 = normal; 6 = fixed defect; 7 = reversable defect
+  mutate( thalassemia =   case_when(thal == "3.0" ~ "normal",
+                                    thal == "6.0" ~ "fixed defect",
+                                    thal == "7.0" ~ "reversable defect"
+                                    ) ) %>%
+  # Add decription for final diagnosis
+  mutate( Diagnosis = case_when(num == 0 ~ "healthy" ,
+                                num == 1 ~ "presence 1",
+                                num == 2 ~ "presence 2",
+                                num == 3 ~ "presence 3",
+                                num == 4 ~ "presence 4"
+                                ) ) %>%
+  # Presence of heart disease (added so we can also just distinguish presence rather than severity)
+  mutate( Presence = if_else(num == 0 , "healthy" , "presence") ) 
+
+
+# The categorical columns are currently in a numeric format and we need to transform these into factors to be used in our analysis.
+
+# Columns to be changed
+cols <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "thal", "num", "SexDesc" , "ChestPain" , 
+          "FastingBloodSugar" ,"RestingECG" , "ExerciseInducedAngina" , "SlopeDesc" ,"thalassemia" , "Diagnosis", "Presence")
+
+# Apply change
+heart.visualise[cols] <- lapply(heart.visualise[cols], factor)
+rm(cols)
+
+```
+
+## Method - Data exploration and predictor selection for models
+
+To start us off lets just have a quick look at the first 6 lines in the data set.
+
+```{r Head, echo=FALSE}
+
+head(heart.visualise)
+
+paste('There are',
+      heart.visualise %>% 
+        summarize(no_observations = n_distinct(id)),
+      'observations in the data set')
+
+```
+
+### Method - Data exploration - Gender
+
+It is likely that we will find a difference between genders so let's take a look at the prevalence between the two.
+
+```{r Visualisations.gender , echo=FALSE}
+# Stacked + percent barchart of presence by gender
+heart.visualise %>%  
+  ggplot( aes(fill=Presence,  x=SexDesc)) + 
+  geom_bar(position="fill", stat="count") + 
+  ggtitle("Presence of Heart Disease by Gender") + 
+  scale_y_continuous(labels = scales::percent)
+```
+
+In our data it seems that heart disease is more prevalent in men, however is this due to sex or other reasons? We need to watch out for causality.
+
+We can see that all Levels within "num" (1-4) form a larger proportion in men.
+
+```{r Visualisations.gender.2 , echo=FALSE , warning=FALSE}
+# Stacked + percent barchart of diagnosis by gender
+heart.visualise %>%  
+  ggplot( aes(fill=Diagnosis,  x=SexDesc)) + 
+  geom_bar(position="fill", stat="count") + 
+  ggtitle("Presence of Heart Disease by Gender - Levels") + 
+  scale_y_continuous(labels = scales::percent)
+
+#  Distribution across age by gender
+heart.visualise %>%
+  ggplot(aes( x=age,  fill=Presence))+
+  geom_histogram( stat = "count") +
+  facet_wrap(~ SexDesc) +
+  ggtitle("Age Distribution - Presence of Heart Disease by Gender") + 
+  xlab("Age") + 
+  ylab("Count") +  
+  scale_x_discrete(breaks = seq(25,80,by=5))
+```
+
+From the above view it could be seen that age is more important than sex as they seems to follow similar distributions, just we have more male cases than female.
+
+### Method - Data exploration - Factor Variables
+
+Now lets see if we can identify some other key variables to use as predictors within our models. 
+
+We will do this as using all 13 potential variables to predict the presence of heart disease will likely lead to overfitting.
+
+Firstly let's look at the factor variables.
+
+These have been split into good/bad predictors based on the difference in outcomes for each level. The larger the difference at each level the more likely this will improve the accuracy of our models.
+
+#### Good potential predictors
+
+Firstly let's look at some good potential predictors from our factor variables.
+
+```{r Visualisations.factors , echo=FALSE}
+
+#Visualise with bar plot - Exercise Induced Angina
+heart.visualise %>% 
+  ggplot(aes(ExerciseInducedAngina)) +
+  geom_bar(aes(x = ExerciseInducedAngina, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by Exercise Induced Angina") + 
+  xlab("ExerciseInducedAngina") + 
+  ylab("Count")
+
+
+#Visualise with bar plot - Chestpain
+heart.visualise %>% 
+  ggplot(aes(ChestPain)) +
+  geom_bar(aes(x = ChestPain, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by Chest Pain") + 
+  xlab("Chest Pain") + 
+  ylab("Count")
+
+
+#Visualise with bar plot - Slope
+heart.visualise %>% 
+  ggplot(aes(SlopeDesc)) +
+  geom_bar(aes(x = SlopeDesc, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by Slope") + 
+  xlab("Slope") + 
+  ylab("Count")
+
+
+#Visualise with bar plot - Thalassemia
+heart.visualise %>% 
+  ggplot(aes(thalassemia)) +
+  geom_bar(aes(x = thalassemia, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by Thalassemia") + 
+  xlab("Thalassemia") + 
+  ylab("Count")
+
+```
+
+
+#### Likely less good potential predictors
+
+Now some potentially bad predictors from our factor variables.
+
+```{r Visualisations.factors.2 , echo=FALSE}
+
+#Visualise with bar plot - Fasting Blood Sugar
+heart.visualise %>% 
+  ggplot(aes(FastingBloodSugar)) +
+  geom_bar(aes(x = FastingBloodSugar, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by Fasting Blood Sugar") + 
+  xlab("Fasting Blood Sugar") + 
+  ylab("Count")
+
+
+#Visualise with bar plot - Resting ECG
+heart.visualise %>% 
+  ggplot(aes(RestingECG)) +
+  geom_bar(aes(x = RestingECG, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by RestingECG") + 
+  xlab("RestingECG") + 
+  ylab("Count")
+
+
+#Visualise with bar plot - Number of major vessels (0-3) colored by flourosopy
+heart.visualise %>% 
+  ggplot(aes(ca)) +
+  geom_bar(aes(x = ca, fill   = Presence ), 
+           alpha    = .5, 
+           position = "dodge",
+           color    = "black"   ) +
+  ggtitle("Presence of Heart Disease by No of Vessels Coloured by Flourosopy") + 
+  xlab("No of Vessels") + 
+  ylab("Count")
+
+```
+
+### Method - Data exploration - Continuous Variables
+
+For continuous variables lets look and see whether any of these are highly correlated to each other. We will examine this further with PCA later when looking at their multicollinearity and "components".
+
+```{r Visualisations.continuous , echo=FALSE}
+# Continuous Data for visualisation.
+
+# Select columns for use in correlation matrices/pair plots diagrams.
+heart.visualise.pairs <- heart.visualise %>% 
+  dplyr::select(age,
+                trestbps,
+                chol,
+                thalach,
+                oldpeak,
+                PresenceValue)
+
+# Columns to be changed
+cols <- c("age", "trestbps", "chol", "thalach", "oldpeak" , "PresenceValue")
+# Apply change
+heart.visualise.pairs[cols] <- lapply(heart.visualise.pairs[cols], as.numeric )
+
+rm(cols)
+```
+
+#### Pairs visualisation for correlation
+
+There doesnt seem to be much correlation between our continuous variables.
+
+```{r Visualisations.continuous.2 , echo=FALSE}
+# Pairs/Correlation visualisation
+
+pairs(PresenceValue~., data = heart.visualise.pairs, col= heart.visualise.pairs$PresenceValue )
+
+heart.visualise.pairs <- heart.visualise.pairs %>% 
+  dplyr::select(-PresenceValue)
+```
+
+#### Correlation values
+
+This is confirmed when looking at the correlation values below. This would suggest that PCA/PCR/PLS analysis would not be very helpful.
+
+```{r Visualisations.continuous.3 , echo=FALSE}
+corr <- round(cor(heart.visualise.pairs), 1)
+
+ggcorrplot(corr,lab = T)
+
+rm(heart.visualise.pairs)
+```
+
+#### Normalised Continous Variables
+
+In order to determine which of the continuous variables has the best predictive power we can look at them as boxplots and see which of these is significantly different for a positive/negative diagnosis of heart disease.
+
+```{r Visualisations.continuous.4 , echo=FALSE}
+# Select columns for use in box diagrams.
+heart.visualise.box <- heart.visualise %>% 
+  dplyr::select(age,
+                trestbps,
+                chol,
+                thalach,
+                oldpeak,
+                Presence)
+
+# Columns to be changed
+cols <- c("age", "trestbps", "chol", "thalach", "oldpeak", "Presence")
+# Apply change
+heart.visualise.box[cols] <- lapply(heart.visualise.box[cols], as.numeric )
+
+heart.visualise.box <- data.Normalization(heart.visualise.box, type="n1", normalization="column") 
+
+heart.visualise.box <- heart.visualise.box %>% 
+  mutate( Presence = if_else( round( Presence , 0) == -1 , "healthy" , "presence") )  # levels have changed to -1 and 1 rather than 0 and 1
+
+heart.visualise.box <- heart.visualise.box %>% 
+  gather(key = "variable", value = "value" , -Presence) %>% 
+  mutate(Description = paste(variable, Presence , sep = " ") )
+
+heart.visualise.box %>% 
+  ggplot(aes(y = value)) +
+  geom_boxplot(aes(fill = Presence),
+               alpha  = .5 ) +
+  facet_wrap(~ Description) +
+  ggtitle("Presence of Heart Disease by Normalised Numeric Predictors") + 
+  ylab("Normalised Value")
+
+
+rm(heart.visualise.box)
+
+```
+
+### Predictors chosen for models
+
+For models where having a lower number of predictors improves its reliability and reduces the chance of these filling the "noise" we will reduce these by using those selected below.
+
+#### Factor variables
+
+Based on the graphics shown above we have seleted the below variables as being potentially statistically different. Though this is not limited to just the below we have made a observational choice.
+
+1. (ca) - number of major vessels (0-3) colored by flourosopy
+2. (cp) - chest pain type
+3. (thal) - Form of thalassemia
+
+#### Continuous variables
+
+From the continuous predictors there is the greatest difference seen within "age", "oldpeak" and "thalach".
+
+4. (age) - age in years
+5. (oldpeak) - ST depression induced by exercise relative to rest
+6. (thalach) - maximum heart rate achieved
+ 
+# Results - Building a model to predict heart disease
+
+```{r resultstable , echo=FALSE}
+############ Create a Results Table
+Accuracy_Results <- NULL
+# Created to store results from models run below.
+
+```
+
+## Model 1 - K Means
+
+K-means works by distance between variables, as such categorical variables will not work within the model so we shall remove these first.
+
+We will be using the continuous variables namely; age,trestbps, chol, thalach, oldpeak along with our reassigned outcome PresenceValue which now only has two results being 0 (absence) and 1 (presence) of heart disease.
+
+In order to perform cluster analysis on the data we must also standardise the data to make variables comparable.
+
+```{r Model1Kmeans , echo=FALSE}
+############ K Means Clustering - Filtering, Standardising and Scaling data
+
+heart.uci.cluster <- heart.uci %>%  # first lets make a seperate data set for cluster analysis.
+  dplyr::select(age,
+                trestbps,
+                chol,
+                thalach,
+                oldpeak,
+                PresenceValue)
+
+# Change the factor columns back to numeric (without altering their values to the levels allocated when previously converted to factors we will us the below formula).
+indx <- sapply(heart.uci.cluster, is.factor)
+heart.uci.cluster[indx] <- lapply(heart.uci.cluster[indx], function(x) as.numeric(as.character(x)))
+
+# Split the data into x predictors and y outcome
+heart.uci.cluster.x <- heart.uci.cluster %>% 
+  dplyr::select( -PresenceValue )
+
+heart.uci.cluster.y <- heart.uci.cluster %>% 
+  dplyr::select( PresenceValue )
+
+
+# In order to perform cluster analysis on the data we must standardise the data to make variables comparable.
+heart.uci.cluster.x <- heart.uci.cluster.x %>% as.matrix() # First we convert to a matrix
+
+centered.x <- sweep(heart.uci.cluster.x, 2, colMeans(heart.uci.cluster.x)) # center the data
+scaled.x <- sweep(centered.x, 2, colSds(heart.uci.cluster.x), FUN = "/") # then scale it
+
+#sd(scaled.x[,1]) # a quick check of the first column shows the SD is 1. Therefore this has been done correctly.
+```
+
+First lets calculate the average distance between the predictors of our outcome.
+
+```{r Model1Kmeans.2 , echo=FALSE}
+############ K Means Clustering - Visualisation of K
+
+d <- dist(scaled.x)
+
+
+dist_BtoB <- as.matrix(d)[1, heart.uci.cluster.y == "0"]
+
+mean(dist_BtoB[2:length(dist_BtoB)])
+```
+
+### Heatmap of relationships
+
+Now lets create a heatmap of the relationship between features using the scaled matrix. 
+
+```{r Model1Kmeans.3 , echo=FALSE}
+d_features <- dist(t(scaled.x))
+
+heatmap(as.matrix(d_features))
+```
+
+We can see the highest distance between thalach and age. It makes sense that heart rate would relate to age and ST depression induced by exercise (when also considering oldpeak).
+
+### Hierarchical Clustering of Features
+
+We want an algorithm to define groups from our predictors. Hierarchical clustering will define each observation as a separate group, then the two closest groups are joined into a group iteratively until there is just one group including all the observations. 
+
+The hclust function implements this algorithm and it takes a distance as input.
+
+
+We can see from the visualisation that thalach is furthest from age and tresbps.
+
+```{r Model1Kmeans.4 , echo=FALSE} 
+hc<-hclust(d_features, method = "complete")
+plot(hc)
+```
+
+Another way to view this would be in groupings. We do not have many features here to pick from so shall only assign k = 3.
+
+```{r Model1Kmeans.5 , echo=FALSE}
+groups <- cutree(hc, k = 3)
+split(names(groups), groups  )
+```
+
+### K Means Clustering - Visualisation of K
+
+The Factoextra package provides us with some neat visualisations to use within R.
+
+For example we can illustrate which observations have large dissimilarities (red) versus those that appear to be fairly similar (teal). Please note that this looks at all observations as such is only useful for a quick assessment on how similar/dissimilar the data is overall.
+
+```{r Model1Kmeans.6 , echo=FALSE}
+fviz_dist(d, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+
+We can also calculate k-means within this package and visualise the clustering within the predictors. Let's start by determining 2 clusters and run the configuration 25 times (the best one being reported on).
+
+```{r Model1Kmeans.7 , echo=FALSE}
+k2 <- kmeans(scaled.x, centers = 2, nstart = 25)
+
+fviz_cluster(k2, data = scaled.x)
+```
+
+Let's run a few more of these but with higher center values and compare 2, 3, 4, and 5 centers.
+
+```{r Model1Kmeans.8 , echo=FALSE}
+# New kmeans with 3, 4 and 5 centers
+k3 <- kmeans(scaled.x, centers = 3, nstart = 25)
+k4 <- kmeans(scaled.x, centers = 4, nstart = 25)
+k5 <- kmeans(scaled.x, centers = 5, nstart = 25)
+
+# Plots
+p1 <- fviz_cluster(k2, geom = "point", data = scaled.x) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = scaled.x) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = scaled.x) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = scaled.x) + ggtitle("k = 5")
+
+# Arrange the plots in a grid.
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+However, although we have a visual representation of where the dilineations occur this does not actually tell us the optimal number of clusters (though admittedly it is likely two).
+
+We can instead run three methods to confirm the ideal number of clusters.
+
+1. Elbox method
+2. Silhoutte method
+3. Gap statistic method
+
+All three methods below show us that two is the optimal number (for elbox this is where the "bend" is).
+
+```{r Model1Kmeans.10 , echo=FALSE}
+# The elbox method below suggests that the optimal number of clusters (k) is 2 as this is where the "bend" is. 
+
+fviz_nbclust(heart.uci.cluster, kmeans, method = "wss")
+
+# This is backed up by the silhoutte method.
+fviz_nbclust(heart.uci.cluster, kmeans, method = "silhouette")
+
+# This is backed up by the Gap statistic method.
+gap_stat <- clusGap(heart.uci.cluster, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+
+fviz_gap_stat(gap_stat)
+```
+
+So we can return to our first graph. The optimal number of clusters for our predictors is two.
+
+```{r Model1Kmeans.11 , echo=FALSE , warning=FALSE}
+# Final K = 2 visualisation.
+
+final <- kmeans(scaled.x, 2, nstart = 25)
+
+fviz_cluster(final, data = scaled.x)
+
+print(final)
+
+# 
+
+rm(k2 , k3 , k4 , k5 , p , p1 , p2 , p3 , p4 , gap_stat , final)
+```
+
+From the above we can see our final model using K=2 explains 24.5% of the variance in our data set. This means that although we are about to perform k-means as a method of prediction, the predictive ability is actually fairly poor.
+
+### K Means Clustering - Modelling the Algorithym
+
+#### Define a k-means predict function
+
+Let's create a k-means predict function. The predict_kmeans() function defined here takes two arguments - a matrix of observations x and a k-means object k - and assigns each row of x to a cluster from k.
+
+```{r Model1Kmeans.calc }
+predict_kmeans <- function(x, k) {
+  centers <- k$centers    # extract cluster centers
+  # calculate distance to cluster centers
+  distances <- sapply(1:nrow(x), function(i){
+    apply(centers, 1, function(y) dist(rbind(x[i,], y)))
+  })
+  max.col(-t(distances))  # select cluster with min distance to center
+}
+```
+
+For this model we are using the predictors; age, trestbps,  chol, thalach and oldpeak.
+
+```{r Model1Kmeans.calc.2 , echo=FALSE }
+# Define filtered test, training and validation sets.
+
+# In order to perform cluster analysis on the data we must standardise the data to make variables comparable.
+
+# Train set for Cluster
+train_set.cluster <- train_set %>%  # first lets make a seperate data set for cluster analysis.
+  dplyr::select(age,  trestbps,   chol,   thalach,  oldpeak,  PresenceValue)
+
+
+# Split the data into x predictors and y outcome
+train_set.cluster.x <- train_set.cluster %>% 
+  dplyr::select( -PresenceValue )
+
+train_set.cluster.y <- train_set.cluster %>% 
+  dplyr::select( PresenceValue )
+
+# In order to perform cluster analysis on the data we must standardise the data to make variables comparable.
+train_set.cluster.x <- train_set.cluster.x %>% as.matrix() # First we convert to a matrix
+
+train_set.centered.x <- sweep(train_set.cluster.x, 2, colMeans(train_set.cluster.x)) # center the data
+train_set.scaled.x <- sweep(train_set.centered.x, 2, colSds(train_set.cluster.x), FUN = "/") # then scale it
+
+# Test set for Cluster
+test_set.cluster <- test_set %>%  # first lets make a seperate data set for cluster analysis.
+  dplyr::select(age,  trestbps,   chol,   thalach,  oldpeak,  PresenceValue)
+
+
+# Split the data into x predictors and y outcome
+test_set.cluster.x <- test_set.cluster %>% 
+  dplyr::select( -PresenceValue )
+
+test_set.cluster.y <- test_set.cluster %>% 
+  dplyr::select( PresenceValue )
+
+# In order to perform cluster analysis on the data we must standardise the data to make variables comparable.
+test_set.cluster.x <- test_set.cluster.x %>% as.matrix() # First we convert to a matrix
+
+test_set.centered.x <- sweep(test_set.cluster.x, 2, colMeans(test_set.cluster.x)) # center the data
+test_set.scaled.x <- sweep(test_set.centered.x, 2, colSds(test_set.cluster.x), FUN = "/") # then scale it
+```
+
+##### K Means Clustering - Testing and training
+
+```{r Model1Kmeans.calc.3 , echo=FALSE }
+set.seed(1)   
+k <- kmeans(train_set.scaled.x, centers = 2)
+kmeans_preds <- ifelse(predict_kmeans(test_set.scaled.x, k) == 1, "0", "1")   # 0 for healthy, 1 for heart disease 
+
+Accuracy <- round(mean(kmeans_preds == test_set.cluster.y),3)
+
+confusionmatrix.results <- confusionMatrix(factor(kmeans_preds), factor(test_set.cluster.y$PresenceValue))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- round(confusionmatrix.results$byClass[1],3)
+Specificity <- round(confusionmatrix.results$byClass[2],3)
+```
+
+This means that k-means is giving us an accuracy of `r Accuracy`, correctly identifies `r Sensitivity` of patients without heart disease (Sensitivity) and `r Specificity` of patients with heart disease (Specificity).
+
+Previously we stated that only 24.5% of the variance is explained by the numeric variables selected. We can demonstate this variability by running the test again but with seed = 3. Here we now have 68.5% accuracy due to chance. We shall therefore keep the first result which is more reflective of the models predictive power.
+
+```{r Model1Kmeans.calc.4 , echo=FALSE }
+set.seed(3)   # Different seed gives a vastly different and confusing result for the below.
+k <- kmeans(train_set.scaled.x, centers = 2)
+kmeans_preds <- ifelse(predict_kmeans(test_set.scaled.x, k) == 1, "0", "1")   # 0 for healthy, 1 for heart disease 
+
+mean(kmeans_preds == test_set.cluster.y)
+
+# Change preds into numeric not factor for analysis
+kmeans_preds <- as.numeric(as.character(kmeans_preds))
+
+# Change y into numeric not factor for analysis
+test_set.cluster.y <- test_set.cluster.y$PresenceValue
+test_set.cluster.y <- as.numeric(as.character(test_set.cluster.y))
+```
+
+Now we can add our results to a table to be presented at the end of our experiment. We have rounded these to 3dp.
+
+```{r Model1Kmeans.calc.5 , echo=FALSE }
+# Here we add the results to a table.
+Accuracy_Results <- tibble(
+                            Method = "Model 1 - K Means", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(kmeans_preds, test_set.cluster.y ),3),
+                            Rsquare = round(caret::R2(kmeans_preds, test_set.cluster.y ) ,3)   )
+
+Accuracy_Results %>% knitr::kable()
+
+rm(heart.uci.cluster , heart.uci.cluster.x , heart.uci.cluster.y  , train_set.centered.x , train_set.cluster , train_set.cluster.x , train_set.cluster.y , train_set.scaled.x, test_set.centered.x , test_set.cluster , test_set.cluster.x , test_set.cluster.y , test_set.scaled.x )
+
+```
+
+## Model 2-8 - Setting K-fold cross validation control  
+
+In the next 7 models we will utilise k-fold cross validation which we will set to run with 10% sampling (running 10 times) and repeat the whole process 3 times. This will increase the accuracy of our final model for each method.
+
+```{r kfoldcrosscontrol}
+
+# Repeated K-fold cross-validation
+control <- trainControl(method = "repeatedcv", 
+                        number = 10, 
+                        repeats = 3)
+```
+
+## Model 2 - Partial Least Squares ("PLS")  
+
+Before we jump into PLS we will firstly look at PCA analysis to show why this would not be a good method of prediction for our data set.
+
+Firstly we will reshape the data for both PLS and PCA as this will need to be in the same format. We will revert factors back into numeric values.
+
+```{r DataforPCAandPLS , message=FALSE , echo=FALSE }
+################################### Data for PCA and PLS
+
+# Change the factor columns back to numeric (without altering their values to the levels allocated when previously converted to factors we will us the below formula).
+indx <- sapply(train_set, is.factor)
+train_set[indx] <- lapply(train_set[indx], function(x) as.numeric(as.character(x)))
+
+indx <- sapply(test_set, is.factor)
+test_set[indx] <- lapply(test_set[indx], function(x) as.numeric(as.character(x)))
+
+
+# Split out pc.train_set
+pc.train_set <- train_set
+pc.train_set_y <- train_set$PresenceValue
+
+pc.train_set_x <- pc.train_set %>% 
+  dplyr::select(-PresenceValue)
+
+# Split out pc.test_set
+pc.test_set <- test_set
+pc.test_set_y <- test_set$PresenceValue
+
+pc.test_set_x <- pc.test_set %>% 
+  dplyr::select(-PresenceValue)
+```
+
+### Visualisation of Principal Component Analysis ("PCA")  
+
+We will now use Principal Component Analysis ("PCA") to identify components within our variables to try to explain the variation.
+
+In PCA the data should first be standardised as they have different units and variances. If we do not do this then the first component will be mainly determined by variables with the largest variance. We will do this below via the "center" and "scale" arguments.
+
+We can see below that there is some correlation between the variables. Though I would say this is not extreme and therefore doesn't bode well for PCA having statistical relevance to this analysis as it relies on creating components from correlations of variables.
+
+```{r PCA , message=FALSE , echo=FALSE}
+res <- cor(pc.train_set_x, method="pearson")
+corrplot::corrplot(res, method= "color", order = "hclust", tl.pos = 'n')
+```
+
+In reality PCA/PCR is more useful for data sets with larger number of predictors and when these have large correlation.
+
+This method intends to reduce the dimensions of our predictors, uses components to try to avoid the multicollinearity between the predictors and reduce the chance of an overfitted model.
+
+We set center and scale to true in order to normalise the data.  This will center the data around its mean (reducing each columns mean to zero) and therefore scaling all predictors around each other so they don't have more weight than each other.
+
+Running PCA we can see that the cumulative proportion is at ~47% with three principal components ("PC's"), ideally we would look for a higher figure as again using too many PC's can lead to over fitting. 
+
+```{r PCA.2 , message=FALSE , echo=FALSE}
+pca <- prcomp(pc.train_set_x, center=TRUE, scale.=TRUE)
+
+summary(pca)
+```
+
+Let's plot the first two principal components to get a visual representation of this. We will colour the outcome (absence = 0/heart disease = 1).
+
+```{r PCA.3 , message=FALSE , echo=FALSE}
+data.frame(pca$x[,1:2], Diagnosis = pc.train_set_y ) %>%
+  ggplot(aes(PC1, PC2, color = Diagnosis)) +
+  geom_point() +
+  ggtitle("First Two PC's coloured by diagnosis")
+```
+
+There is high overlap of the two level diagnosis, showing the first two components alone would not be very useful to determine the presence of heart disease.
+
+We can also create boxplots of each of the first nine PC's to show which are statistically different within the diagnosis. This shows that the first PC is quite useful in its predictive power but following from that the rest have little value.
+
+```{r PCA.4 , message=FALSE , echo=FALSE}
+# Make a boxplot of the first 9 PCs 
+data.frame(Diagnosis = pc.train_set_y, pca$x[,1:9]) %>%
+  gather(key = "PC", value = "value", -Diagnosis) %>%
+  ggplot(aes(PC, value, fill = factor(Diagnosis))) +
+  geom_boxplot()
+```
+
+Since the principal components are orthogonal, there is no correlation whatsoever. The correlation plot is perfectly white, apart from autocorrelation.
+
+```{r PCA.5 , message=FALSE , echo=FALSE}
+res1 <- cor(pca$x, method="pearson")
+corrplot::corrplot(res1, method= "color", order = "hclust", tl.pos = 'n')
+```
+
+The below plot below shows what percent of variance has been explained for each number of principal components (aggregate variance explained). Ideally we would be seeing a steep curve, unfortunately the smoothness shows a lack of variance explained by the first few components.
+
+Overall PCA confirms the lack of multicollinearity between our predictors.
+
+```{r PCA.6 , message=FALSE , echo=FALSE}
+
+var_explained <- cumsum(pca$sdev^2/sum(pca$sdev^2))
+plot(var_explained)
+
+```
+
+## Model 2 - Partial Least Squares ("PLS")  
+
+Partial least squares is a method, similar to principal component regression, that chooses the components to include based on the correlation with the outcome . This makes the method non-linear and thus computationally less attractive. 
+
+Since our PCA analysis didn't seem too successful it is therefore unlikely to be our best method.
+
+```{r Model2PLS , message=FALSE, echo=FALSE}
+# Columns to be changed
+cols <- c("PresenceValue")
+
+# Apply change
+pc.train_set[cols] <- lapply(pc.train_set[cols], factor)
+pc.test_set[cols] <- lapply(pc.test_set[cols], factor)
+```
+
+However, we shall still attempt it, if only for comparison. So let's build our PLS model.
+
+```{r Model2PLS.2 , message=FALSE}
+# Build the model on training set
+set.seed(1)
+model <- train( PresenceValue ~ . , data = pc.train_set , method = "pls",
+                scale = TRUE,
+                trControl = control,
+                metric = "Accuracy",
+                tuneLength = 10  )
+```
+
+Our plot below shows that 2 components gives us the highest accuracy (also confirmed by best tune).
+
+```{r Model2PLS.3 , message=FALSE}
+# Plot model RMSE vs different values of components
+plot(model)
+
+# Print the best tuning parameter ncomp that
+# minimize the cross-validation error, RMSE
+model$bestTune
+
+# Make predictions
+pls_preds <- predict(model, newdata = pc.test_set)
+
+# Change preds into numeric not factor for analysis
+pls_preds <- as.numeric(as.character(pls_preds))
+
+
+Accuracy <- mean(pls_preds == pc.test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(kmeans_preds), factor(pc.test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 2 - PLS", 
+                             Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(pls_preds, pc.test_set_y ),3),
+                            Rsquare = round(caret::R2(pls_preds, pc.test_set_y ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+```
+
+We can see that the specifity (detecting the presence of heart disease) is quite low at 64%. We expected it wouldn't be high though this is now confirmed.
+
+```{r Model3-7Data , message=FALSE , echo=FALSE}
+
+######################################## Changing data for further models
+
+# Columns to be changed
+cols <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "thal", "PresenceValue")
+
+# Apply change
+train_set[cols] <- lapply(train_set[cols], factor)
+test_set[cols] <- lapply(test_set[cols], factor)
+validation[cols] <- lapply(validation[cols], factor)
+
+test_set_y <- test_set$PresenceValue
+
+# Change preds into numeric not factor for analysis
+test_set_y_analysis <- as.numeric(as.character(test_set_y))
+
+
+```
+
+We had previously identified thalach , ca, oldpeak, age, cp and thal predictors as potentially useful in determining accurate prediction models. We shall use this in all remaining models.
+
+
+## Model 3 - General Logistic Regression ("GLM")  
+
+Here we will apply logistic regression to our data which will assign numeric values of 0 and 1 to the outcomes.
+
+```{r Model3GLM , message=FALSE}
+set.seed(1)
+train_glm <- train(PresenceValue ~  thalach + ca + oldpeak + age + cp + thal  , 
+                   data = train_set,
+                   trControl = control,
+                   method = "glm" ,
+                   family=binomial) # The dependant variable we are trying to pick is binomial (has two outcomes).
+```
+
+
+```{r Model3GLM.2 , message=FALSE ,echo=FALSE}
+glm_preds <- predict(train_glm, test_set)
+
+
+Accuracy <- mean(glm_preds == test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(glm_preds), factor(test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+
+# Change preds into numeric not factor for analysis
+glm_preds <- as.numeric(as.character(glm_preds))
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 3 - GLM", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(glm_preds, test_set_y_analysis ),3),
+                            Rsquare = round(caret::R2(glm_preds, test_set_y_analysis ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+
+```
+
+GLM has provided good results, with the highest confidence intervals seen thus far and both sensitivity and specificity are at/above 80%. This already beats the historical attempts.
+
+## Model 4 - Linear Discriminant Analysis ("LDA")  
+
+Linear Discriminant Analysis ("LDA") is a specific case of the general generative model, Naive Bayes. Bayes theorem tells us that knowing the distribution of the predictors X may be useful.
+
+LDA estimates the probability that a new set of inputs belongs to every class. The output class is the one that has the highest probability.
+
+```{r Model4LDA , message=FALSE}
+set.seed(1)   
+train_lda <- train(PresenceValue ~  thalach + ca + oldpeak + age + cp + thal , 
+                   data = train_set,
+                   trControl = control,
+                   method = "lda")
+
+lda_preds <- predict(train_lda, test_set)
+
+```
+
+```{r Model4LDA.2 , message=FALSE , echo=FALSE}
+
+Accuracy <- mean(lda_preds == test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(lda_preds), factor(test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+
+# Change preds into numeric not factor for analysis
+lda_preds <- as.numeric(as.character(lda_preds))
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 4 - LDA", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(lda_preds, test_set_y_analysis ),3),
+                            Rsquare = round(caret::R2(lda_preds, test_set_y_analysis ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+
+```
+
+We should expect to see fairly similar results with GLM, LDA and QDA. LDA's accuracy is very high though its specificity for detecting the disease is a little lower.
+
+## Model 5 - Quadratic Discriminant Analysis ("QDA")  
+
+QDA is slightly different to LDA, where in LDA a linear boundary is needed between classifiers, QDA is used to find non-linear boundaries.
+
+```{r Model5QDA , message=FALSE}
+set.seed(1)   
+train_qda <- train(PresenceValue ~ thalach + ca + oldpeak + age + cp + thal  ,
+                   data = train_set,
+                   method = "qda",
+                   na.rm=TRUE )
+
+qda_preds <- predict(train_qda, test_set)
+```
+
+
+```{r Model5QDA.2 , message=FALSE , echo=FALSE}
+
+Accuracy <- mean(qda_preds == test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(qda_preds), factor(test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Change preds into numeric not factor for analysis
+qda_preds <- as.numeric(as.character(qda_preds))
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 5 - QDA", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(qda_preds, test_set_y_analysis ),3),
+                            Rsquare = round(caret::R2(qda_preds, test_set_y_analysis ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+
+```
+
+## Model 6 - Local Weighted Regression ("Loess")
+
+We can use Loess, this method is non-linear and tries to down weight large residuals and refit the data. In essence this reduces the skew by our outliers.
+
+```{r Model6Loess , message=FALSE , warning=FALSE}
+set.seed(1)   
+train_loess <- train(PresenceValue ~  thalach + ca + oldpeak + age + cp + thal , 
+                     data = train_set,
+                     trControl = control,
+                     method = "gamLoess")
+
+loess_preds <- predict(train_loess, test_set)
+```
+
+
+```{r Model6Loess.2 , message=FALSE, echo=FALSE}
+Accuracy <- mean(loess_preds == test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(loess_preds), factor(test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Change preds into numeric not factor for analysis
+loess_preds <- as.numeric(as.character(loess_preds))
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 6 - LOESS", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(loess_preds, test_set_y_analysis ),3),
+                            Rsquare = round(caret::R2(loess_preds, test_set_y_analysis ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+
+```
+
+Loess is our best model so far. This implies that our data set has a number of outliers which may be skewing other model outcomes. 
+
+## Model 7 - K-Nearest Neighbors
+
+K-nearest neighbours will look to find the distances between a query and all examples in the data. It selects the number of examples specified (K) closest to the query. It will then choose the most frequent label as this is a classification outcome.
+
+```{r Model7KNN , message=FALSE}
+set.seed(1)   
+train_knn <- train(PresenceValue ~  thalach + ca + oldpeak + age + cp + thal , 
+                   data = train_set, 
+                   method = "knn",
+                   trControl = control,
+                   tuneGrid = data.frame(k = seq(3, 21, 2)))
+knn_preds <- predict(train_knn, test_set)
+
+plot(train_knn)
+
+# Best K used
+bestk <- train_knn$bestTune
+```
+
+The above graph shows us that the ideal K used for our model is `r bestk`.
+
+```{r Model7KNN.2 , message=FALSE , echo=FALSE}
+
+Accuracy <- mean(knn_preds == test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(knn_preds), factor(test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Change preds into numeric not factor for analysis
+knn_preds <- as.numeric(as.character(knn_preds))
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 7 - KNN", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(knn_preds, test_set_y_analysis ),3),
+                            Rsquare = round(caret::R2(knn_preds, test_set_y_analysis ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+
+```
+
+## Model 8 - Random Forest
+
+Random forests improve prediction performance and reduce instability by averaging multiple decision trees.
+
+To achieve this firstly it uses aggregation which generates many predictors, each using regression or classification trees, and then forming a final prediction based on the average prediction of all these trees. 
+
+Secondly it assures that the individual trees are not the same, by using the bootstrap to induce randomness.
+
+```{r Model8RF , message=FALSE}
+set.seed(1)   
+train_rf <- train(PresenceValue ~  thalach + ca + oldpeak + age + cp + thal , 
+                  data = train_set,
+                  method = "rf",
+                  trControl = control,
+                  importance = TRUE,
+                  tuneGrid = data.frame(mtry = c(3,5,7,9)))
+
+rf_preds <- predict(train_rf, test_set)
+```
+
+
+```{r Model8RF.2 , message=FALSE , echo=FALSE}
+
+ggplot(train_rf) +
+  ggtitle("Random Forest - Ideal Number of Predictors") 
+  
+bestrf <- train_rf$bestTune
+
+# The most important variable in the random forest model.
+mostimprf <- varImp(train_rf)
+
+
+# The above graph shows us that the ideal number of predictors used for our model is `r bestrf` with the most important variable being `r mostimprf`.
+```
+
+
+
+```{r Model8RF.3 , message=FALSE , echo=FALSE}
+Accuracy <- mean(rf_preds == test_set_y)
+
+confusionmatrix.results <- confusionMatrix(factor(rf_preds), factor(test_set_y))
+
+confusionmatrix.results # This also contains the accuracy that we calculated above.
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Change preds into numeric not factor for analysis
+rf_preds <- as.numeric(as.character(rf_preds))
+
+# Here we add the results to a table.
+Accuracy_Results <- rbind(Accuracy_Results,
+                          tibble(
+                            Method = "Model 8 - Random Forest", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3),
+                            RMSE = round(caret::RMSE(rf_preds, test_set_y_analysis ),3),
+                            Rsquare = round(caret::R2(rf_preds, test_set_y_analysis ),3)              ))
+
+Accuracy_Results %>% knitr::kable()
+
+
+```
+
+So we have now run 8 different models. We shall test the best ones on the validation set to be sure we have created a working algorithm.
+
+Looking at final accuracies we can see that the best models are Loess, GLM, RF, LDA and QDA.
+
+However, sensitivity in our model is predicting the proportion of patients who do not have heart disease and specificity those who do. In sense of how this data is used these therefore as the most important metrics, as we want to be able to properly diagnose patients who have heart disease and identify those who don't.
+
+Using this logic therefore GLM, Loess and RF are the best models.
+
+## Present Modeling Results
+
+### Validating the best models
+
+We will now test GLM, Loess and RF against the final validation data set.
+
+```{r TestingOnValidationSet , message=FALSE , warning=FALSE , echo=FALSE}
+# Validation y values for us to check our results against.
+validation.y <- validation$PresenceValue
+
+#GLM 
+glm_preds <- predict(train_glm, validation) ############################ Final validation
+
+Accuracy <- mean(glm_preds == validation.y)
+
+confusionmatrix.results <- confusionMatrix(factor(glm_preds), factor(validation.y))
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Here we add the results to a table.
+Validation_Results <- tibble(
+                            Method = "Model 3 - GLM", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3)             )
+
+
+#Loess 
+loess_preds <- predict(train_loess, validation) ############################ Final validation
+
+Accuracy <- mean(loess_preds == validation.y)
+
+confusionmatrix.results <- confusionMatrix(factor(loess_preds), factor(validation.y))
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Here we add the results to a table.
+Validation_Results <- rbind(Validation_Results,
+                          tibble(
+                            Method = "Model 5 - Loess", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3)             ))
+
+
+#RF 
+rf_preds <- predict(train_rf, validation) ############################ Final validation
+
+Accuracy <- mean(rf_preds == validation.y)
+
+confusionmatrix.results <- confusionMatrix(factor(rf_preds), factor(validation.y))
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Here we add the results to a table.
+Validation_Results <- rbind(Validation_Results,
+                          tibble(
+                            Method = "Model 8 - Random Forest", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3)             ))
+
+
+Validation_Results %>% knitr::kable()
+
+```
+
+### Validating the best models as an ensemble
+
+Let us create an ensemble validation set using the best three models identified. We will use the ensemble to generate a majority prediction of the presence of heart disease.
+
+```{r EnsembleValidation , message=FALSE}
+ensemble <- cbind(glm = glm_preds == "0", 
+                  loess = loess_preds == "0", 
+                  rf = rf_preds == "0")
+
+ensemble_preds <- ifelse(rowMeans(ensemble) > 0.5, "0", "1")
+
+Accuracy <- mean(ensemble_preds == validation.y)
+
+confusionmatrix.results <- confusionMatrix(factor(ensemble_preds), factor(validation.y))
+
+# Accuracy <- confusionmatrix.results$overall[1] Alternative way of showing accuracy already calculated above.
+LowerCI <- confusionmatrix.results$overall[3]
+UpperCI <- confusionmatrix.results$overall[4]
+
+Sensitivity <- confusionmatrix.results$byClass[1]
+Specificity <- confusionmatrix.results$byClass[2]
+
+# Here we add the results to a table.
+Validation_Results <- rbind(Validation_Results,
+                          tibble(
+                            Method = "Ensemble Final Validation", 
+                            Accuracy = round(Accuracy, 3),
+                            LowerCI = round(LowerCI, 3),
+                            UpperCI = round(UpperCI,3),
+                            Sensitivity = round(Sensitivity,3),
+                            Specificity = round(Specificity,3)             ))
+
+
+Validation_Results %>% knitr::kable()
+```
+
+## Discuss Model Performance
+
+After training the data and testing it against the various methods we selected GLM, Loess and RF as the best models. In order to improve on these we created an ensemble which would use a majority rule when determining the binary outcome for the presence of heart disease.
+
+Our final ensemble model has an accuracy of 86.7% which is an improvement on the results achieved by John Gennari's "Models of incremental concept formation" which utilised CLASSIT conceptual clustering of 78.9%.
+
+In addition to this both our final model's sensitivity and specificity are above 85% at 87.5% and 85.7% respectively meaning we are able to determine both the presence and absence of heart disease with relatively similar accuracy.
+
+# Conclusion
+
+## Summary
+
+GLM, Loess and RF were all effective methods in detecting heart disease and when collated into an ensemble model these improved our detection ability with a final accuracy of 86.7%.
+
+## Limitations/Future work
+
+The data sample of ~299 observations is quite small for this sort of analysis, we should ideally increase this. We did attempt to join the four different databases to increase the size however only Cleveland's data has taken the majority of readings. I wanted to analyse as many variables as possible so reduced the number of observations in favour of variables, this was mainly so I could compare my accuracy with previously completed studies (a good benchmark for improvement).
+
+PCA, PCR, PLS and K-means work better with a higher number of continuous variables, if we could find another database with these then these method outcomes would surely improve. We might also consider using CATPCA to try to improve the use of catergorical predictors.
+
+In terms of how we could improve upon the data we possess. We reduced the number of variables utilised base on visualisation determination. Though we could re run the models with other predictors available such as exang (exercise induced angina), slope (the slope of the peak exercise ST segment) and form of thalassemia.
+
+Another method which could potentially identify useful predictors would be stepwise regression which adds/removes these from the model based on the p-value produced.
